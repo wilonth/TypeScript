@@ -1,0 +1,12 @@
+{
+    "compilerOptions": {
+        "target": "es5",
+        "outDir": "../../built/tests",
+        "strictNullChecks": true,
+        "moduleResolution": "node",
+        "isolatedModules": true,
+        "sourceMap": true,
+        "emitDecoratorMetadata": true,
+        "experimentalDecorators": true
+    }
+}

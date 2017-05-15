@@ -1,6 +1,6 @@
 /// <reference path="checker.ts" />
 /// <reference path="transformer.ts" />
-/// <reference path="declarationEmitter.ts" />
+/// <reference path="goEmitter.ts" />
 /// <reference path="sourcemap.ts" />
 /// <reference path="comments.ts" />
 

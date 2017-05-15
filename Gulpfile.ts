@@ -270,12 +270,7 @@ function getCompilerSettings(base: tsc.Settings, useBuiltCompiler?: boolean): ts
         if (copy.removeComments === undefined) copy.removeComments = true;
         copy.newLine = "lf";
     }
-    if (useBuiltCompiler === true) {
-        copy.typescript = require("./built/local/typescript.js");
-    }
-    else if (useBuiltCompiler === false) {
-        copy.typescript = require("./lib/typescript.js");
-    }
+    //copy.typescript = require("./lib/typescript.js");
     return copy;
 }
 
@@ -388,9 +383,10 @@ function prependCopyright(outputCopyright: boolean = !useDebugMode) {
 }
 
 gulp.task(builtLocalCompiler, /*help*/ false, [servicesFile], () => {
-    const localCompilerProject = tsc.createProject("src/compiler/tsconfig.json", getCompilerSettings({}, /*useBuiltCompiler*/ true));
+    const localCompilerProject = tsc.createProject("src/compiler/tsconfig.json", getCompilerSettings({}, /*useBuiltCompiler*/ false));
+    console.log(getCompilerSettings({}, /*useBuiltCompiler*/ false))
     return localCompilerProject.src()
-        .pipe(newer(builtLocalCompiler))
+        //.pipe(newer(builtLocalCompiler))
         .pipe(sourcemaps.init())
         .pipe(localCompilerProject())
         .pipe(prependCopyright())

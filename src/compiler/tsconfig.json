@@ -33,7 +33,7 @@
         "transformer.ts",
         "comments.ts",
         "sourcemap.ts",
-        "declarationEmitter.ts",
+        "goEmitter.ts",
         "emitter.ts",
         "program.ts",
         "commandLineParser.ts",

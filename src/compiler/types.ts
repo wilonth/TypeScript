@@ -581,6 +581,7 @@ namespace ts {
         /*@internal*/ autoGenerateKind?: GeneratedIdentifierKind; // Specifies whether to auto-generate the text for an identifier.
         /*@internal*/ autoGenerateId?: number;         // Ensures unique generated identifiers get unique names, but clones get the same name.
         isInJSDocNamespace?: boolean;                  // if the node is a member in a JSDoc namespace
+        isSpecialName?: boolean;
     }
 
     // Transient identifier node (marked by id === -1)
@@ -2651,6 +2652,7 @@ namespace ts {
         UseTypeAliasValue               = 0x00000400,  // Serialize the type instead of using type-alias. This is needed when we emit declaration file.
         SuppressAnyReturnType           = 0x00000800,  // If the return type is any-like, don't offer a return type.
         AddUndefined                    = 0x00001000,  // Add undefined to types of initialized, non-optional parameters
+        DoNotWriteVoid                  = 0x00002000,  // Do not write if type is "void"
     }
 
     export const enum SymbolFormatFlags {

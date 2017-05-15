@@ -2603,7 +2603,7 @@ namespace ts {
         const path = outputDir
             ? getSourceFilePathInNewDir(sourceFile, host, outputDir)
             : sourceFile.fileName;
-        return removeFileExtension(path) + ".d.ts";
+        return removeFileExtension(path) + ".go";
     }
 
     export interface EmitFileNames {
@@ -4122,6 +4122,10 @@ namespace ts {
      */
     export function isStatementButNotDeclaration(node: Node): node is Statement {
         return isStatementKindButNotDeclarationKind(node.kind);
+    }
+
+    export function isTopLevel(node: Node) {
+        return node.kind == SyntaxKind.SourceFile || node.kind == SyntaxKind.ModuleDeclaration
     }
 
     export function isStatement(node: Node): node is Statement {

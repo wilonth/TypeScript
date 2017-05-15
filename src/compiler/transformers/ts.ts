@@ -308,6 +308,8 @@ namespace ts {
                 case SyntaxKind.ReadonlyKeyword:
                     // TypeScript accessibility and readonly modifiers are elided.
 
+                case SyntaxKind.NumberKeyword:
+                    return createIdentifier('float64')
                 case SyntaxKind.ArrayType:
                 case SyntaxKind.TupleType:
                 case SyntaxKind.TypeLiteral:
@@ -316,7 +318,6 @@ namespace ts {
                 case SyntaxKind.AnyKeyword:
                 case SyntaxKind.BooleanKeyword:
                 case SyntaxKind.StringKeyword:
-                case SyntaxKind.NumberKeyword:
                 case SyntaxKind.NeverKeyword:
                 case SyntaxKind.VoidKeyword:
                 case SyntaxKind.SymbolKeyword:
@@ -2231,7 +2232,7 @@ namespace ts {
                 node.dotDotDotToken,
                 visitNode(node.name, visitor, isBindingName),
                 /*questionToken*/ undefined,
-                /*type*/ undefined,
+                visitNode(node.type, visitor, isTypeNode),
                 visitNode(node.initializer, visitor, isExpression)
             );
 

@@ -3072,7 +3072,9 @@ namespace ts {
                 function writeType(type: Type, flags: TypeFormatFlags) {
                     const nextFlags = flags & ~TypeFormatFlags.InTypeAlias;
                     // Write undefined/null type as any
-                    if (type.flags & TypeFlags.Intrinsic) {
+                    if (type.flags & TypeFlags.Void && flags & TypeFormatFlags.DoNotWriteVoid) {
+                        return
+                    } else if (type.flags & TypeFlags.Intrinsic) {
                         // Special handling for unknown / resolving types, they should show up as any and not unknown or __resolving
                         writer.writeKeyword(!(globalFlags & TypeFormatFlags.WriteOwnNameForAnyLike) && isTypeAny(type)
                             ? "any"

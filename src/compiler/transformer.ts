@@ -13,7 +13,7 @@
 
 /* @internal */
 namespace ts {
-    function getModuleTransformer(moduleKind: ModuleKind): TransformerFactory<SourceFile> {
+    /*function getModuleTransformer(moduleKind: ModuleKind): TransformerFactory<SourceFile> {
         switch (moduleKind) {
             case ModuleKind.ES2015:
                 return transformES2015Module;
@@ -22,7 +22,7 @@ namespace ts {
             default:
                 return transformModule;
         }
-    }
+    }*/
 
     const enum TransformationState {
         Uninitialized,
@@ -36,17 +36,17 @@ namespace ts {
         EmitNotifications = 1 << 1,
     }
 
-    export function getTransformers(compilerOptions: CompilerOptions, customTransformers?: CustomTransformers) {
-        const jsx = compilerOptions.jsx;
+    export function getTransformers(_: CompilerOptions, customTransformers?: CustomTransformers) {
+        /*const jsx = compilerOptions.jsx;
         const languageVersion = getEmitScriptTarget(compilerOptions);
-        const moduleKind = getEmitModuleKind(compilerOptions);
+        const moduleKind = getEmitModuleKind(compilerOptions);*/
         const transformers: TransformerFactory<SourceFile>[] = [];
 
         addRange(transformers, customTransformers && customTransformers.before);
 
         transformers.push(transformTypeScript);
 
-        if (jsx === JsxEmit.React) {
+        /*if (jsx === JsxEmit.React) {
             transformers.push(transformJsx);
         }
 
@@ -76,6 +76,7 @@ namespace ts {
         }
 
         addRange(transformers, customTransformers && customTransformers.after);
+        */
 
         return transformers;
     }
