@@ -1,16 +1,18 @@
-export function f(){}
+export {}
 
 class Animal {
-    constructor(public name) { }
-    move(meters) {
+    constructor(public name: string) {
+        this.name = name
+    }
+    move(meters: number) {
         console.log(this.name + " moved " + meters + "m.");
     }
 }
 
 class Snake extends Animal {
-    move() {
+    move(meters: number) {
         console.log("Slithering...");
-        super.move(5);
+        super.move(meters);
     }
 }
 
@@ -24,5 +26,5 @@ class Horse extends Animal {
 var sam = new Snake("Sammy the Python")
 var tom: Animal = new Horse("Tommy the Palomino")
 
-sam.move()
+sam.move(5)
 tom.move(34)

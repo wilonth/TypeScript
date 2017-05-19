@@ -2008,6 +2008,10 @@ namespace ts {
             || kind === SyntaxKind.NumericLiteral;
     }
 
+    export function getObjectFlags(type: Type): ObjectFlags {
+        return type.flags & TypeFlags.Object ? (<ObjectType>type).objectFlags : 0;
+    }
+
     /**
      * A declaration has a dynamic name if both of the following are true:
      *   1. The declaration has a computed property name

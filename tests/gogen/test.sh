@@ -18,12 +18,18 @@ do
   gofile=$basename.go
   expected=`node $TESTS_BUILD_DIR/$jsfile`
   node $BUILT_COMPILER --outDir $TESTS_BUILD_DIR $file
-  got=`go run $TESTS_BUILD_DIR/$gofile`
+  got=$(go run $TESTS_BUILD_DIR/$gofile 2>&1)
 
   expected_t=`echo "$expected" | xargs`
   got_t=`echo "$got" | xargs`
   if [ "$expected_t" != "$got_t" ]; then
       echo "Failed: expected '$expected_t', got '$got_t'"
+      if [ -n $1 ]; then
+          echo "generated code:"
+          echo "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^"
+          cat $TESTS_BUILD_DIR/$gofile
+          echo "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^"
+      fi
   else
       echo "OK."
   fi

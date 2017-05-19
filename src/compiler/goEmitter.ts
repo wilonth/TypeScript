@@ -5,6 +5,9 @@ namespace ts {
     const delimiters = createDelimiterMap();
     const brackets = createBracketsMap();
 
+    const CLASS_STRUCT_SUFFIX = "d"
+    const CLASS_INTERFACE_SUFFIX = ""
+
     interface ModuleElementDeclarationEmitInfo {
         node: Node;
         outputPos: number;
@@ -58,7 +61,6 @@ namespace ts {
         let isCurrentFileExternalModule: boolean;
         let reportedDeclarationError = false;
         let errorNameNode: DeclarationName;
-        const emitJsDocComments = compilerOptions.removeComments ? noop : writeJsDocComments;
         const emit = emitNode;
 
         //let handlers: PrintHandlers = {}
@@ -218,7 +220,7 @@ namespace ts {
                             Debug.assert(asynchronousSubModuleDeclarationEmitInfo === undefined);
                             asynchronousSubModuleDeclarationEmitInfo = [];
                         }
-                        emitModuleElement(nodeToCheck);
+                        emit(nodeToCheck);
                         if (nodeToCheck.kind === SyntaxKind.ModuleDeclaration) {
                             moduleElementEmitInfo.subModuleElementDeclarationEmitInfo = asynchronousSubModuleDeclarationEmitInfo;
                             asynchronousSubModuleDeclarationEmitInfo = undefined;
@@ -266,22 +268,16 @@ namespace ts {
         }
 
         function writeTypeOfDeclaration(declaration: AccessorDeclaration | VariableLikeDeclaration, type: TypeNode) {
-            write(" ");
-
             // use the checker's type, not the declared type,
             // for non-optional initialized parameters that aren't a parameter property
             const shouldUseResolverType = declaration.kind === SyntaxKind.Parameter &&
                 resolver.isRequiredInitializedParameter(declaration as ParameterDeclaration);
-            if (type && !shouldUseResolverType) {
-                // Write the type
+            if (shouldUseResolverType) {
+                write(" ");
+                resolver.writeTypeOfDeclaration(declaration, enclosingDeclaration, TypeFormatFlags.None, writer)
+            } else if (type) {
+                write(" ");
                 emitType(type);
-            }
-            else {
-                errorNameNode = declaration.name;
-                const format = TypeFormatFlags.UseTypeOfFunction | TypeFormatFlags.UseTypeAliasValue |
-                    (shouldUseResolverType ? TypeFormatFlags.AddUndefined : 0);
-                resolver.writeTypeOfDeclaration(declaration, enclosingDeclaration, format, writer);
-                errorNameNode = undefined;
             }
         }
 
@@ -313,7 +309,7 @@ namespace ts {
             for (const node of nodes) {
                 if (!canEmitFn || canEmitFn(node)) {
                     if (currentWriterPos !== writer.getTextPos()) {
-                        write(separator);
+                        separator == "" ? writeLine() : write(separator);
                     }
                     currentWriterPos = writer.getTextPos();
                     eachNodeEmitFn(node);
@@ -323,15 +319,6 @@ namespace ts {
 
         function emitCommaList(nodes: Node[], eachNodeEmitFn: (node: Node) => void, canEmitFn?: (node: Node) => boolean) {
             emitSeparatedList(nodes, ", ", eachNodeEmitFn, canEmitFn);
-        }
-
-        function writeJsDocComments(declaration: Node) {
-            if (declaration) {
-                const jsDocComments = getJSDocCommentRanges(declaration, currentText);
-                emitNewLineBeforeLeadingComments(currentLineMap, writer, declaration, jsDocComments);
-                // jsDoc comments are emitted at /*leading comment1 */space/*leading comment*/space
-                emitComments(currentText, currentLineMap, writer, jsDocComments, /*leadingSeparator*/ false, /*trailingSeparator*/ true, newLine, writeCommentRange);
-            }
         }
 
         function emitType(type: TypeNode | Identifier | QualifiedName) {
@@ -354,7 +341,7 @@ namespace ts {
                 case SyntaxKind.NeverKeyword:
                 case SyntaxKind.ThisType:
                 case SyntaxKind.LiteralType:
-                    return writeTextOfNode(currentText, type);
+                    return emitTextOfNode(currentText, type);
                 case SyntaxKind.ExpressionWithTypeArguments:
                     return emitExpressionWithTypeArguments(<ExpressionWithTypeArguments>type);
                 case SyntaxKind.TypeReference:
@@ -392,14 +379,14 @@ namespace ts {
 
             function writeEntityName(entityName: EntityName | Expression) {
                 if (entityName.kind === SyntaxKind.Identifier) {
-                    writeTextOfNode(currentText, entityName);
+                    emitIdentifier(<Identifier>entityName)
                 }
                 else {
                     const left = entityName.kind === SyntaxKind.QualifiedName ? (<QualifiedName>entityName).left : (<PropertyAccessExpression>entityName).expression;
                     const right = entityName.kind === SyntaxKind.QualifiedName ? (<QualifiedName>entityName).right : (<PropertyAccessExpression>entityName).name;
                     writeEntityName(left);
                     write(".");
-                    writeTextOfNode(currentText, right);
+                    emitTextOfNode(currentText, right);
                 }
             }
 
@@ -430,7 +417,7 @@ namespace ts {
             }
 
             function emitTypePredicate(type: TypePredicateNode) {
-                writeTextOfNode(currentText, type.parameterName);
+                emitTextOfNode(currentText, type.parameterName);
                 write(" is ");
                 emitType(type.type);
             }
@@ -531,7 +518,6 @@ namespace ts {
             emitLines(sourceFile.statements);
             writeLine()
             let main = createIdentifier("main")
-            main.isSpecialName = true
             let mainFunc = createFunctionDeclaration([], [], undefined, main, [], [], undefined,
                 createBlock(globalStatements, true))
             mainFunc.parent = sourceFile
@@ -582,7 +568,7 @@ namespace ts {
         function emitExportAssignment(node: ExportAssignment) {
             if (node.expression.kind === SyntaxKind.Identifier) {
                 write(node.isExportEquals ? "export = " : "export default ");
-                writeTextOfNode(currentText, node.expression);
+                emitTextOfNode(currentText, node.expression);
             }
             else {
                 const tempVarName = emitTempVariableDeclaration(node.expression, "_default");
@@ -601,65 +587,20 @@ namespace ts {
             }
         }
 
-        function emitModuleElement(node: Node) {
-            switch (node.kind) {
-                case SyntaxKind.FunctionDeclaration:
-                    return emitFunctionDeclaration(<FunctionLikeDeclaration>node);
-                case SyntaxKind.VariableStatement:
-                    return writeVariableStatement(<VariableStatement>node);
-                case SyntaxKind.InterfaceDeclaration:
-                    return writeInterfaceDeclaration(<InterfaceDeclaration>node);
-                case SyntaxKind.ClassDeclaration:
-                    return writeClassDeclaration(<ClassDeclaration>node);
-                case SyntaxKind.TypeAliasDeclaration:
-                    return writeTypeAliasDeclaration(<TypeAliasDeclaration>node);
-                case SyntaxKind.EnumDeclaration:
-                    return writeEnumDeclaration(<EnumDeclaration>node);
-                case SyntaxKind.ModuleDeclaration:
-                    return writeModuleDeclaration(<ModuleDeclaration>node);
-                case SyntaxKind.ImportEqualsDeclaration:
-                    return writeImportEqualsDeclaration(<ImportEqualsDeclaration>node);
-                case SyntaxKind.ImportDeclaration:
-                    return writeImportDeclaration(<ImportDeclaration>node);
-                default:
-                    Debug.fail("Unknown symbol kind");
-            }
-        }
-
         function emitModuleElementDeclarationFlags(node: Node) {
             // If the node is parented in the current source file we need to emit export declare or just export
             if (node.parent.kind === SyntaxKind.SourceFile) {
             }
         }
 
-        function emitClassMemberDeclarationFlags(flags: ModifierFlags) {
-            if (flags & ModifierFlags.Private) {
-                write("private ");
-            }
-            else if (flags & ModifierFlags.Protected) {
-                write("protected ");
-            }
-
-            if (flags & ModifierFlags.Static) {
-                write("static ");
-            }
-            if (flags & ModifierFlags.Readonly) {
-                write("readonly ");
-            }
-            if (flags & ModifierFlags.Abstract) {
-                write("abstract ");
-            }
-        }
-
-        function writeImportEqualsDeclaration(node: ImportEqualsDeclaration) {
+        function emitImportEqualsDeclaration(node: ImportEqualsDeclaration) {
             // note usage of writer. methods instead of aliases created, just to make sure we are using
             // correct writer especially to handle asynchronous alias writing
-            emitJsDocComments(node);
             if (hasModifier(node, ModifierFlags.Export)) {
                 write("export ");
             }
             write("import ");
-            writeTextOfNode(currentText, node.name);
+            emitTextOfNode(currentText, node.name);
             write(" = ");
             if (isInternalModuleImportEqualsDeclaration(node)) {
                 emitType(<EntityName>node.moduleReference);
@@ -685,7 +626,7 @@ namespace ts {
         }
 
         function writeImportDeclaration(node: ImportDeclaration) {
-            emitJsDocComments(node);
+
             if (hasModifier(node, ModifierFlags.Export)) {
                 write("export ");
             }
@@ -693,7 +634,7 @@ namespace ts {
             if (node.importClause) {
                 const currentWriterPos = writer.getTextPos();
                 if (node.importClause.name && resolver.isDeclarationVisible(node.importClause)) {
-                    writeTextOfNode(currentText, node.importClause.name);
+                    emitTextOfNode(currentText, node.importClause.name);
                 }
                 if (node.importClause.namedBindings && isVisibleNamedBinding(node.importClause.namedBindings)) {
                     if (currentWriterPos !== writer.getTextPos()) {
@@ -702,7 +643,7 @@ namespace ts {
                     }
                     if (node.importClause.namedBindings.kind === SyntaxKind.NamespaceImport) {
                         write("* as ");
-                        writeTextOfNode(currentText, (<NamespaceImport>node.importClause.namedBindings).name);
+                        emitTextOfNode(currentText, (<NamespaceImport>node.importClause.namedBindings).name);
                     }
                     else {
                         write("{ ");
@@ -746,48 +687,18 @@ namespace ts {
                 }
             }
 
-            writeTextOfNode(currentText, moduleSpecifier);
+            emitTextOfNode(currentText, moduleSpecifier);
         }
 
         function emitImportOrExportSpecifier(node: ImportOrExportSpecifier) {
             if (node.propertyName) {
-                writeTextOfNode(currentText, node.propertyName);
+                emitTextOfNode(currentText, node.propertyName);
                 write(" as ");
             }
-            writeTextOfNode(currentText, node.name);
+            emitTextOfNode(currentText, node.name);
         }
 
-        function emitExportSpecifier(node: ExportSpecifier) {
-            emitImportOrExportSpecifier(node);
-
-            // Make all the declarations visible for the export name
-            const nodes = resolver.collectLinkedAliases(node.propertyName || node.name);
-
-            // write each of these declarations asynchronously
-            writeAsynchronousModuleElements(nodes);
-        }
-
-        function emitExportDeclaration(node: ExportDeclaration) {
-            emitJsDocComments(node);
-            write("export ");
-            if (node.exportClause) {
-                write("{ ");
-                emitCommaList(node.exportClause.elements, emitExportSpecifier);
-                write(" }");
-            }
-            else {
-                write("*");
-            }
-            if (node.moduleSpecifier) {
-                write(" from ");
-                emitExternalModuleSpecifier(node);
-            }
-            write(";");
-            writer.writeLine();
-        }
-
-        function writeModuleDeclaration(node: ModuleDeclaration) {
-            emitJsDocComments(node);
+        function emitModuleDeclaration(node: ModuleDeclaration) {
             emitModuleElementDeclarationFlags(node);
             if (isGlobalScopeAugmentation(node)) {
                 write("global ");
@@ -803,13 +714,13 @@ namespace ts {
                     emitExternalModuleSpecifier(node);
                 }
                 else {
-                    writeTextOfNode(currentText, node.name);
+                    emitTextOfNode(currentText, node.name);
                 }
             }
             while (node.body && node.body.kind !== SyntaxKind.ModuleBlock) {
                 node = <ModuleDeclaration>node.body;
                 write(".");
-                writeTextOfNode(currentText, node.name);
+                emitTextOfNode(currentText, node.name);
             }
             const prevEnclosingDeclaration = enclosingDeclaration;
             if (node.body) {
@@ -828,13 +739,13 @@ namespace ts {
             }
         }
 
-        function writeTypeAliasDeclaration(node: TypeAliasDeclaration) {
+        function emitTypeAliasDeclaration(node: TypeAliasDeclaration) {
             const prevEnclosingDeclaration = enclosingDeclaration;
             enclosingDeclaration = node;
-            emitJsDocComments(node);
+
             emitModuleElementDeclarationFlags(node);
             write("type ");
-            writeTextOfNode(currentText, node.name);
+            emitTextOfNode(currentText, node.name);
             emitTypeParameters(node.typeParameters);
             write(" = ");
             emitType(node.type);
@@ -843,14 +754,13 @@ namespace ts {
             enclosingDeclaration = prevEnclosingDeclaration;
         }
 
-        function writeEnumDeclaration(node: EnumDeclaration) {
-            emitJsDocComments(node);
+        function emitEnumDeclaration(node: EnumDeclaration) {
             emitModuleElementDeclarationFlags(node);
             if (isConst(node)) {
                 write("const ");
             }
             write("enum ");
-            writeTextOfNode(currentText, node.name);
+            emitTextOfNode(currentText, node.name);
             write(" {");
             writeLine();
             increaseIndent();
@@ -860,9 +770,8 @@ namespace ts {
             writeLine();
         }
 
-        function emitEnumMemberDeclaration(node: EnumMember) {
-            emitJsDocComments(node);
-            writeTextOfNode(currentText, node.name);
+        function emitEnumMember(node: EnumMember) {
+            emitTextOfNode(currentText, node.name);
             const enumMemberValue = resolver.getConstantValue(node);
             if (enumMemberValue !== undefined) {
                 write(" = ");
@@ -872,16 +781,16 @@ namespace ts {
             writeLine();
         }
 
-        function isPrivateMethodTypeParameter(node: TypeParameterDeclaration) {
-            return node.parent.kind === SyntaxKind.MethodDeclaration && hasModifier(node.parent, ModifierFlags.Private);
-        }
+        // function isPrivateMethodTypeParameter(node: TypeParameterDeclaration) {
+        //     return node.parent.kind === SyntaxKind.MethodDeclaration && hasModifier(node.parent, ModifierFlags.Private);
+        // }
 
-        function emitTypeParameters(typeParameters: TypeParameterDeclaration[]) {
-            function emitTypeParameter(node: TypeParameterDeclaration) {
+        function emitTypeParameters(_typeParameters: TypeParameterDeclaration[]) {
+            /*function emitTypeParameter(node: TypeParameterDeclaration) {
                 increaseIndent();
-                emitJsDocComments(node);
+
                 decreaseIndent();
-                writeTextOfNode(currentText, node.name);
+                emitTextOfNode(currentText, node.name);
                 // If there is constraint present and this is not a type parameter of the private method emit the constraint
                 if (node.constraint && !isPrivateMethodTypeParameter(node)) {
                     write(" extends ");
@@ -923,91 +832,228 @@ namespace ts {
                 write("<");
                 emitCommaList(typeParameters, emitTypeParameter);
                 write(">");
+            }*/
+        }
+
+        function emitHeritageEmbedded(typeReferences: ExpressionWithTypeArguments[], suffix: string) {
+            typeReferences.forEach(ref => {
+                emitType(ref)
+                write(suffix)
+                writeLine()
+            })
+        }
+
+        function getClassMembersStructure(node: ClassDeclaration) {
+            let constructor: ConstructorDeclaration | undefined
+            let methods: MethodDeclaration[] = []
+            let properties: PropertyDeclaration[] = []
+            node.members.forEach((mem) => {
+                switch (mem.kind) {
+                case SyntaxKind.Constructor:
+                    constructor = <ConstructorDeclaration>mem
+                    break
+                case SyntaxKind.MethodDeclaration:
+                    methods.push(<MethodDeclaration>mem)
+                    break
+                case SyntaxKind.PropertyDeclaration:
+                    properties.push(<PropertyDeclaration>mem)
+                    break
+                }
+            })
+
+            return {
+                constructor,
+                methods,
+                properties
             }
         }
 
-        function emitHeritageClause(typeReferences: ExpressionWithTypeArguments[], isImplementsList: boolean) {
-            if (typeReferences) {
-                write(isImplementsList ? " implements " : " extends ");
-                emitCommaList(typeReferences, emitTypeOfTypeReference);
-            }
-
-            function emitTypeOfTypeReference(node: ExpressionWithTypeArguments) {
-                if (isEntityNameExpression(node.expression)) {
-                    emitType(node);
-                }
-                else if (!isImplementsList && node.expression.kind === SyntaxKind.NullKeyword) {
-                    write("null");
-                }
-            }
-        }
-
-        function writeClassDeclaration(node: ClassDeclaration) {
-            function emitParameterProperties(constructorDeclaration: ConstructorDeclaration) {
-                if (constructorDeclaration) {
-                    forEach(constructorDeclaration.parameters, param => {
-                        if (hasModifier(param, ModifierFlags.ParameterPropertyModifier)) {
-                            emitPropertyDeclaration(param);
-                        }
-                    });
-                }
-            }
-
+        function emitClassDeclaration(node: ClassDeclaration) {
             const prevEnclosingDeclaration = enclosingDeclaration;
             enclosingDeclaration = node;
-            const baseTypeNode = getClassExtendsHeritageClauseElement(node);
-            let tempVarName: string;
-            if (baseTypeNode && !isEntityNameExpression(baseTypeNode.expression)) {
-                tempVarName = baseTypeNode.expression.kind === SyntaxKind.NullKeyword ?
-                    "null" :
-                    emitTempVariableDeclaration(baseTypeNode.expression, `${node.name.text}_base`);
-            }
 
-            emitJsDocComments(node);
-            emitModuleElementDeclarationFlags(node);
-            if (hasModifier(node, ModifierFlags.Abstract)) {
-                write("abstract ");
-            }
-            write("class ");
-            writeTextOfNode(currentText, node.name);
-            emitTypeParameters(node.typeParameters);
-            if (baseTypeNode) {
-                if (!isEntityNameExpression(baseTypeNode.expression)) {
-                    write(" extends ");
-                    write(tempVarName);
-                    if (baseTypeNode.typeArguments) {
-                        write("<");
-                        emitCommaList(baseTypeNode.typeArguments, emitType);
-                        write(">");
-                    }
-                }
-                else {
-                    emitHeritageClause([baseTypeNode], /*isImplementsList*/ false);
-                }
-            }
-            emitHeritageClause(getClassImplementsHeritageClauseElements(node), /*isImplementsList*/ true);
-            write(" {");
+            let mems = getClassMembersStructure(node);
+            let className = getEmittedIdentifierName(node.name)
+            let structName = className + CLASS_STRUCT_SUFFIX
+            let paramProps = getParameterProperties(getFirstConstructorWithBody(node))
+            let props = mems.properties.concat(...paramProps);
+
+            // emit data struct
+            write("type ");
+            write(structName + " struct {");
             writeLine();
             increaseIndent();
-            emitParameterProperties(getFirstConstructorWithBody(node));
-            emitLines(node.members);
+            let extendClause = getClassExtendsHeritageClauseElement(node);
+            if (extendClause) {
+                emitHeritageEmbedded([extendClause], CLASS_INTERFACE_SUFFIX);
+            }
+            emitLines(props);
             decreaseIndent();
             write("}");
             writeLine();
+            //
+
+            // emit interface
+            write("type ");
+            write(className + CLASS_INTERFACE_SUFFIX + " interface {");
+            writeLine();
+            increaseIndent();
+
+            let parentMembers: SymbolTable
+            let parentRef = extendClause ? extendClause.expression : undefined
+            if (extendClause) {
+                emitHeritageEmbedded([extendClause], CLASS_INTERFACE_SUFFIX);
+                let parent = resolver.resolveEntityName(<EntityNameOrEntityNameExpression>parentRef,
+                    SymbolFlags.Class, true, false, extendClause)
+                parentMembers = parent.members
+            }
+            emitClassInterfaceMethods(parentMembers, props, mems.methods)
+            writeLine();
+            decreaseIndent();
+            write("}");
+            writeLine();
+            //
+
+            // emit method implementations
+            emitClassMethodImpls(structName, parentRef, parentMembers, props, mems.methods);
             enclosingDeclaration = prevEnclosingDeclaration;
+
+            // emit constructor
+            emitClassConstructor(className, mems.constructor, parentRef, parentMembers)
+
+            function getParameterProperties(constructorDeclaration: ConstructorDeclaration): PropertyDeclaration[] {
+                if (constructorDeclaration) {
+                    return constructorDeclaration.parameters.filter(param => {
+                        return hasModifier(param, ModifierFlags.ParameterPropertyModifier)
+                    })
+                    .map(item => {
+                        return createProperty(item.decorators, item.modifiers,
+                            <Identifier>item.name, item.questionToken, item.type, item.initializer)
+                    }
+                    );
+                }
+                return []
+            }
+
+            function emitClassInterfaceMethods(parentMembers: SymbolTable, props: PropertyDeclaration[], methods: MethodDeclaration[]) {
+                props.forEach(prop => {
+                    if (isIdentifier(prop.name) && !parentAlreadyHasMember(prop.name)) {
+                        let name = getEmittedIdentifierName(prop.name);
+                        write(`Get${name}__() `);
+                        writeTypeOfDeclaration(prop, prop.type);
+                        writeLine();
+                        if (!hasModifier(prop, ModifierFlags.Readonly)) {
+                            write(`Set${name}__(value `);
+                            writeTypeOfDeclaration(prop, prop.type);
+                            write(")");
+                            writeLine();
+                        }
+                    }
+                })
+                methods.forEach(method => {
+                    if (isIdentifier(method.name) && !parentAlreadyHasMember(method.name)) {
+                        emitIdentifier(method.name);
+                        emitSignatureDeclaration(method);
+                        writeLine();
+                    }
+                })
+
+                function parentAlreadyHasMember(name: Identifier) {
+                    return parentMembers && parentMembers.has(name.text)
+                }
+            }
+
+            function emitClassMethodImpls(receiverType: string, parentRef: Expression, parentMembers: SymbolTable, props: PropertyDeclaration[], methods: MethodDeclaration[]) {
+                props.forEach(prop => {
+                    if (isIdentifier(prop.name)) {
+                        let name = getEmittedIdentifierName(prop.name);
+                        write(`func (this *${receiverType}) Get${name}__() `)
+                        writeTypeOfDeclaration(prop, prop.type)
+                        write(`{ return this.${name} }`)
+                        writeLine()
+                        write(`func (this *${receiverType}) Set${name}__(value `)
+                        writeTypeOfDeclaration(prop, prop.type)
+                        write(`) { this.${name} = value }`)
+                        writeLine()
+                    }
+                })
+                methods.forEach(method => {
+                    if (isIdentifier(method.name)) {
+                        let parentMethod: Symbol = parentMembers && parentMembers.get(method.name.text)
+                        emitFunctionDeclaration(method, {
+                            receiverType,
+                            parentMethod: parentMethod ? <MethodDeclaration>parentMethod.declarations[0] : method,
+                        })
+                    }
+                })
+                if (parentMembers) {
+                    let prefName = transformName(getTextOfNode(parentRef));
+                    write(`func (this *${receiverType}) super() ${prefName}${CLASS_INTERFACE_SUFFIX} `);
+                    write(`{ return this.${prefName}${CLASS_INTERFACE_SUFFIX} }`);
+                    writeLine();
+                }
+            }
+
+            function emitClassConstructor(className: string, constructor: ConstructorDeclaration, parentRef?: Expression, parentMembers?: SymbolTable) {
+                write("func " + constructorNameFor(className));
+                let parentConstructor: SignatureDeclaration
+                if (constructor) {
+                    emitSignatureDeclaration(constructor)
+                } else if (parentRef) {
+                    let pcons = parentMembers.get("__constructor")
+                    if (pcons) {
+                        parentConstructor = <SignatureDeclaration>pcons.declarations[0]
+                        emitSignatureDeclaration(parentConstructor)
+                    }
+                }
+                write(" ");
+                write(className + CLASS_INTERFACE_SUFFIX);
+                write(" ");
+                if (constructor) {
+                    emitBlock(constructor.body, {writeBodyStart, writeBodyEnd})
+                } else {
+                    writeReturnBody()
+                }
+                writeLine();
+                function writeBodyStart() {
+                    writeLine();
+                    write(`this := &${className}${CLASS_STRUCT_SUFFIX}{}`);
+                    writeLine();
+                }
+                function writeBodyEnd() {
+                    writeLine()
+                    write("return this")
+                    writeLine()
+                }
+                function writeReturnBody() {
+                    let prefName = transformName(getTextOfNode(parentRef))
+                    let pconsName = constructorNameFor(prefName)
+                    Debug.assert(parentRef && parentMembers != undefined)
+                    write("{ ")
+                    let paramList = parentConstructor.parameters
+                        .filter(param => isIdentifier(param.name))
+                        .map(param => getEmittedIdentifierName(<Identifier>param.name))
+                        .join(", ")
+                    write(`return &${className}${CLASS_STRUCT_SUFFIX}{`)
+                    write(`${prefName}${CLASS_INTERFACE_SUFFIX}: ${pconsName}(${paramList})} }`)
+                }
+            }
         }
 
-        function writeInterfaceDeclaration(node: InterfaceDeclaration) {
-            emitJsDocComments(node);
+        function constructorNameFor(className: string) {
+            return className+"new"
+        }
+
+        function emitInterfaceDeclaration(node: InterfaceDeclaration) {
             emitModuleElementDeclarationFlags(node);
             write("interface ");
-            writeTextOfNode(currentText, node.name);
+            emitTextOfNode(currentText, node.name);
             const prevEnclosingDeclaration = enclosingDeclaration;
             enclosingDeclaration = node;
             emitTypeParameters(node.typeParameters);
             const interfaceExtendsTypes = filter(getInterfaceBaseTypeNodes(node), base => isEntityNameExpression(base.expression));
             if (interfaceExtendsTypes && interfaceExtendsTypes.length) {
-                emitHeritageClause(interfaceExtendsTypes, /*isImplementsList*/ false);
+                emitHeritageEmbedded(interfaceExtendsTypes, "");
             }
             write(" {");
             writeLine();
@@ -1024,41 +1070,38 @@ namespace ts {
                 return;
             }
 
-            emitJsDocComments(node);
-            emitClassMemberDeclarationFlags(getModifierFlags(node));
             emitVariableDeclaration(<VariableDeclaration>node);
-            write(";");
             writeLine();
         }
 
         function emitVariableDeclaration(node: VariableDeclaration | PropertyDeclaration | PropertySignature | ParameterDeclaration) {
-            // If we are emitting property it isn't moduleElement and hence we already know it needs to be emitted
-            // so there is no check needed to see if declaration is visible
-            if (node.kind !== SyntaxKind.VariableDeclaration || resolver.isDeclarationVisible(node)) {
-                if (isBindingPattern(node.name)) {
-                    emitBindingPattern(<BindingPattern>node.name);
+            if (isBindingPattern(node.name)) {
+                emitBindingPattern(<BindingPattern>node.name);
+            } else {
+                // If this node is a computed name, it can only be a symbol, because we've already skipped
+                // it if it's not a well known symbol. In that case, the text of the name will be exactly
+                // what we want, namely the name expression enclosed in brackets.
+                emitTextOfNode(currentText, node.name);
+                // If optional property emit ? but in the case of parameterProperty declaration with "?" indicating optional parameter for the constructor
+                // we don't want to emit property declaration with "?"
+                if ((node.kind === SyntaxKind.PropertyDeclaration || node.kind === SyntaxKind.PropertySignature ||
+                    (node.kind === SyntaxKind.Parameter && !isParameterPropertyDeclaration(<ParameterDeclaration>node))) && hasQuestionToken(node)) {
+                    write("?");
+                }
+                if ((node.kind === SyntaxKind.PropertyDeclaration || node.kind === SyntaxKind.PropertySignature) && node.parent && node.parent.kind === SyntaxKind.TypeLiteral) {
+                    emitTypeOfVariableDeclarationFromTypeLiteral(node);
+                }
+                else if (resolver.isLiteralConstDeclaration(node)) {
+                    write(" = ");
+                    resolver.writeLiteralConstValue(node, writer);
+                    return;
                 }
                 else {
-                    // If this node is a computed name, it can only be a symbol, because we've already skipped
-                    // it if it's not a well known symbol. In that case, the text of the name will be exactly
-                    // what we want, namely the name expression enclosed in brackets.
-                    writeTextOfNode(currentText, node.name);
-                    // If optional property emit ? but in the case of parameterProperty declaration with "?" indicating optional parameter for the constructor
-                    // we don't want to emit property declaration with "?"
-                    if ((node.kind === SyntaxKind.PropertyDeclaration || node.kind === SyntaxKind.PropertySignature ||
-                        (node.kind === SyntaxKind.Parameter && !isParameterPropertyDeclaration(<ParameterDeclaration>node))) && hasQuestionToken(node)) {
-                        write("?");
-                    }
-                    if ((node.kind === SyntaxKind.PropertyDeclaration || node.kind === SyntaxKind.PropertySignature) && node.parent.kind === SyntaxKind.TypeLiteral) {
-                        emitTypeOfVariableDeclarationFromTypeLiteral(node);
-                    }
-                    else if (resolver.isLiteralConstDeclaration(node)) {
-                        write(" = ");
-                        resolver.writeLiteralConstValue(node, writer);
-                    }
-                    else if (!hasModifier(node, ModifierFlags.Private)) {
-                        writeTypeOfDeclaration(node, node.type);
-                    }
+                    writeTypeOfDeclaration(node, node.type);
+                }
+                if (node.initializer) {
+                    write(" = ");
+                    emitExpression(node.initializer);
                 }
             }
 
@@ -1083,7 +1126,7 @@ namespace ts {
                         emitBindingPattern(<BindingPattern>bindingElement.name);
                     }
                     else {
-                        writeTextOfNode(currentText, bindingElement.name);
+                        emitTextOfNode(currentText, bindingElement.name);
                         writeTypeOfDeclaration(bindingElement, /*type*/ undefined);
                     }
                 }
@@ -1100,21 +1143,13 @@ namespace ts {
             }
         }
 
-        function writeVariableStatement(node: VariableStatement) {
-            emitJsDocComments(node);
-            emitModuleElementDeclarationFlags(node);
-            if (isLet(node.declarationList)) {
-                write("let ");
-            }
-            else if (isConst(node.declarationList)) {
-                write("const ");
-            }
-            else {
-                write("var ");
-            }
-            emitCommaList(node.declarationList.declarations, emitVariableDeclaration, resolver.isDeclarationVisible);
-            write(";");
-            writeLine();
+        function emitVariableStatement(node: VariableStatement) {
+            emitVariableDeclarationList(node.declarationList)
+        }
+
+        function emitVariableDeclarationList(node: VariableDeclarationList) {
+            write(isConst(node) ? "const " : "var ");
+            emitList(node, node.declarations, ListFormat.VariableDeclarationList);
         }
 
         function emitAccessorDeclaration(node: AccessorDeclaration) {
@@ -1126,10 +1161,7 @@ namespace ts {
             let accessorWithTypeAnnotation: AccessorDeclaration;
 
             if (node === accessors.firstAccessor) {
-                emitJsDocComments(accessors.getAccessor);
-                emitJsDocComments(accessors.setAccessor);
-                emitClassMemberDeclarationFlags(getModifierFlags(node) | (accessors.setAccessor ? 0 : ModifierFlags.Readonly));
-                writeTextOfNode(currentText, node.name);
+                emitTextOfNode(currentText, node.name);
                 if (!hasModifier(node, ModifierFlags.Private)) {
                     accessorWithTypeAnnotation = node;
                     let type = getTypeAnnotationFromAccessor(node);
@@ -1158,31 +1190,25 @@ namespace ts {
             }
         }
 
-        function emitFunctionDeclaration(node: FunctionLikeDeclaration) {
+        function emitFunctionDeclaration(node: FunctionLikeDeclaration, options: {
+            receiverType?: string,
+            parentMethod?: MethodDeclaration,
+        } = {}) {
             // If we are emitting Method/Constructor it isn't moduleElement and hence already determined to be emitting
             // so no need to verify if the declaration is visible
             if (!resolver.isImplementationOfOverload(node)) {
-                emitJsDocComments(node);
-                if (node.kind === SyntaxKind.FunctionDeclaration) {
-                    emitModuleElementDeclarationFlags(node);
-                }
-                else if (node.kind === SyntaxKind.MethodDeclaration || node.kind === SyntaxKind.Constructor) {
-                    emitClassMemberDeclarationFlags(getModifierFlags(node));
-                }
-                if (node.kind === SyntaxKind.FunctionDeclaration) {
+                if (node.kind === SyntaxKind.FunctionDeclaration || node.kind === SyntaxKind.MethodDeclaration) {
                     write("func ");
-                    emit(node.name);
-                }
-                else if (node.kind === SyntaxKind.Constructor) {
-                    write("constructor");
-                }
-                else {
-                    writeTextOfNode(currentText, node.name);
-                    if (hasQuestionToken(node)) {
-                        write("?");
+                    if (options.receiverType) {
+                        writeMethodReceiver(options.receiverType);
+                        write(" ");
+                        emit(node.name);
+                        options.parentMethod ? emitSignatureDeclaration(options.parentMethod) : emitSignatureDeclaration(node);
+                    } else {
+                        emit(node.name);
+                        emitSignatureDeclaration(node);
                     }
                 }
-                emitSignatureDeclaration(node);
             }
             if (node.body) {
                 write(" ")
@@ -1191,12 +1217,21 @@ namespace ts {
             }
         }
 
-        function emitBlock(body: Block | Expression) {
+        function writeMethodReceiver(receiverType: string) {
+            write("(this *" + receiverType + ")");
+        }
+
+        function emitBlock(body: Block | Expression, options: {
+                writeBodyStart?: ()=>void,
+                writeBodyEnd?: ()=>void,
+            } = {}) {
             write("{");
             increaseIndent()
+            options.writeBodyStart && options.writeBodyStart();
             if (isBlock(body)) {
                 emitList(body, body.statements, ListFormat.MultiLineFunctionBodyStatements);
             }
+            options.writeBodyEnd && options.writeBodyEnd();
             decreaseIndent();
             write("}");
         }
@@ -1333,10 +1368,9 @@ namespace ts {
                 // if (onAfterEmitNodeArray) {
                 //     onAfterEmitNodeArray(children);
                 // }
-
-                if (format & ListFormat.BracketsMask) {
-                    write(getClosingBracket(format));
-                }
+            }
+            if (format & ListFormat.BracketsMask) {
+                write(getClosingBracket(format));
             }
         }
 
@@ -1345,7 +1379,7 @@ namespace ts {
         }
 
         function emitSignatureDeclarationWithJsDocComments(node: SignatureDeclaration) {
-            emitJsDocComments(node);
+
             emitSignatureDeclaration(node);
         }
 
@@ -1355,8 +1389,6 @@ namespace ts {
             let closeParenthesizedFunctionType = false;
 
             if (node.kind === SyntaxKind.IndexSignature) {
-                // Index signature can have readonly modifier
-                emitClassMemberDeclarationFlags(getModifierFlags(node));
                 write("[");
             }
             else {
@@ -1413,7 +1445,7 @@ namespace ts {
 
         function emitParameterDeclaration(node: ParameterDeclaration) {
             increaseIndent();
-            emitJsDocComments(node);
+
             if (node.dotDotDotToken) {
                 write("...");
             }
@@ -1473,7 +1505,7 @@ namespace ts {
                         // Example:
                         //      original: function foo({y: [a,b,c]}) {}
                         //      emit    : declare function foo({y: [a, b, c]}: { y: [any, any, any] }) void;
-                        writeTextOfNode(currentText, bindingElement.propertyName);
+                        emitTextOfNode(currentText, bindingElement.propertyName);
                         write(": ");
                     }
                     if (bindingElement.name) {
@@ -1505,47 +1537,73 @@ namespace ts {
 
         function emitNode(node: Node) {
             switch (node.kind) {
+                // Declarations
+                case SyntaxKind.VariableDeclaration:
+                    return emitVariableDeclaration(<VariableDeclaration>node);
+                case SyntaxKind.VariableDeclarationList:
+                    return emitVariableDeclarationList(<VariableDeclarationList>node);
                 case SyntaxKind.FunctionDeclaration:
-                case SyntaxKind.ModuleDeclaration:
-                case SyntaxKind.ImportEqualsDeclaration:
-                case SyntaxKind.InterfaceDeclaration:
+                    return emitFunctionDeclaration(<FunctionDeclaration>node);
                 case SyntaxKind.ClassDeclaration:
+                    return emitClassDeclaration(<ClassDeclaration>node);
+                case SyntaxKind.InterfaceDeclaration:
+                    return emitInterfaceDeclaration(<InterfaceDeclaration>node);
                 case SyntaxKind.TypeAliasDeclaration:
+                    return emitTypeAliasDeclaration(<TypeAliasDeclaration>node);
                 case SyntaxKind.EnumDeclaration:
-                    return emitModuleElement(node);
-                case SyntaxKind.VariableStatement:
-                    return emitModuleElement(node);
-                case SyntaxKind.ImportDeclaration:
-                    // Import declaration without import clause is visible, otherwise it is not visible
-                    return emitModuleElement(node);
+                    return emitEnumDeclaration(<EnumDeclaration>node);
+                case SyntaxKind.ModuleDeclaration:
+                    return emitModuleDeclaration(<ModuleDeclaration>node);
+                // case SyntaxKind.ModuleBlock:
+                //     return emitModuleBlock(<ModuleBlock>node);
+                // case SyntaxKind.CaseBlock:
+                //     return emitCaseBlock(<CaseBlock>node);
+                case SyntaxKind.ImportEqualsDeclaration:
+                    return emitImportEqualsDeclaration(<ImportEqualsDeclaration>node);
+                // case SyntaxKind.ImportDeclaration:
+                //     return emitImportDeclaration(<ImportDeclaration>node);
+                // case SyntaxKind.ImportClause:
+                //     return emitImportClause(<ImportClause>node);
+                // case SyntaxKind.NamespaceImport:
+                //     return emitNamespaceImport(<NamespaceImport>node);
+                // case SyntaxKind.NamedImports:
+                //     return emitNamedImports(<NamedImports>node);
+                // case SyntaxKind.ImportSpecifier:
+                //     return emitImportSpecifier(<ImportSpecifier>node);
+                case SyntaxKind.ExportAssignment:
+                    return emitExportAssignment(<ExportAssignment>node);
                 case SyntaxKind.ExportDeclaration:
-                    return emitExportDeclaration(<ExportDeclaration>node);
-                case SyntaxKind.Constructor:
-                case SyntaxKind.MethodDeclaration:
-                case SyntaxKind.MethodSignature:
-                    return emitFunctionDeclaration(<FunctionLikeDeclaration>node);
-                case SyntaxKind.ConstructSignature:
-                case SyntaxKind.CallSignature:
-                case SyntaxKind.IndexSignature:
-                    return emitSignatureDeclarationWithJsDocComments(<SignatureDeclaration>node);
+                    return
+                // case SyntaxKind.NamedExports:
+                //     return emitNamedExports(<NamedExports>node);
+                // case SyntaxKind.ExportSpecifier:
+                //     return emitExportSpecifier(<ExportSpecifier>node);
+                case SyntaxKind.MissingDeclaration:
+                    return;
+                case SyntaxKind.SourceFile:
+                    return emitSourceFile(<SourceFile>node);
+
+
+                // Type members
+                // case SyntaxKind.PropertySignature:
+                //     return emitPropertySignature(<PropertySignature>node);
+                case SyntaxKind.PropertyDeclaration:
+                    return emitPropertyDeclaration(<PropertyDeclaration>node);
                 case SyntaxKind.GetAccessor:
                 case SyntaxKind.SetAccessor:
                     return emitAccessorDeclaration(<AccessorDeclaration>node);
-                case SyntaxKind.PropertyDeclaration:
-                case SyntaxKind.PropertySignature:
-                    return emitPropertyDeclaration(<PropertyDeclaration>node);
-                case SyntaxKind.EnumMember:
-                    return emitEnumMemberDeclaration(<EnumMember>node);
-                case SyntaxKind.ExportAssignment:
-                    return emitExportAssignment(<ExportAssignment>node);
-                case SyntaxKind.SourceFile:
-                    return emitSourceFile(<SourceFile>node);
+                // case SyntaxKind.CallSignature:
+                //     return emitCallSignature(<CallSignatureDeclaration>node);
+                // case SyntaxKind.ConstructSignature:
+                //     return emitConstructSignature(<ConstructSignatureDeclaration>node);
+                // case SyntaxKind.IndexSignature:
+                //     return emitIndexSignature(<IndexSignatureDeclaration>node);
 
                 // Statements
                 case SyntaxKind.Block:
                     return emitBlock(<Block>node);
-                // case SyntaxKind.VariableStatement:
-                //     return emitVariableStatement(<VariableStatement>node);
+                case SyntaxKind.VariableStatement:
+                    return emitVariableStatement(<VariableStatement>node);
                 // case SyntaxKind.EmptyStatement:
                 //     return emitEmptyStatement();
                 case SyntaxKind.ExpressionStatement:
@@ -1578,6 +1636,10 @@ namespace ts {
                 //     return emitThrowStatement(<ThrowStatement>node);
                 // case SyntaxKind.TryStatement:
                 //     return emitTryStatement(<TryStatement>node);
+
+                // Enum
+                case SyntaxKind.EnumMember:
+                    return emitEnumMember(<EnumMember>node);
 
             }
 
@@ -1679,9 +1741,11 @@ namespace ts {
                     return emitIdentifier(<Identifier>node);
 
                 // Reserved words
+                case SyntaxKind.SuperKeyword:
+                    return write("this.super()")
+
                 case SyntaxKind.FalseKeyword:
                 case SyntaxKind.NullKeyword:
-                case SyntaxKind.SuperKeyword:
                 case SyntaxKind.TrueKeyword:
                 case SyntaxKind.ThisKeyword:
                     writeTokenText(kind);
@@ -1698,8 +1762,8 @@ namespace ts {
                      return emitPropertyAccessExpression(<PropertyAccessExpression>node);
                 // case SyntaxKind.ElementAccessExpression:
                 //     return emitElementAccessExpression(<ElementAccessExpression>node);
-                // case SyntaxKind.NewExpression:
-                //     return emitNewExpression(<NewExpression>node);
+                case SyntaxKind.NewExpression:
+                    return emitNewExpression(<NewExpression>node);
                 // case SyntaxKind.TaggedTemplateExpression:
                 //     return emitTaggedTemplateExpression(<TaggedTemplateExpression>node);
                 // case SyntaxKind.TypeAssertionExpression:
@@ -1870,12 +1934,24 @@ namespace ts {
             const indentBeforeOperator = needsIndentation(node, node.left, node.operatorToken);
             const indentAfterOperator = needsIndentation(node, node.operatorToken, node.right);
 
-            emitExpression(node.left);
+            let resultType = resolver.getRegularTypeOfExpression(node);
+            emitExpressionWithNecessaryConversion(node.left, resultType);
             increaseIndentIf(indentBeforeOperator, isCommaOperator ? " " : undefined);
             writeTokenText(node.operatorToken.kind);
             increaseIndentIf(indentAfterOperator, " ");
-            emitExpression(node.right);
+            emitExpressionWithNecessaryConversion(node.right, resultType);
             decreaseIndentIf(indentBeforeOperator, indentAfterOperator);
+        }
+
+        function emitExpressionWithNecessaryConversion(node: Expression, resultType: Type) {
+            let type = resolver.getRegularTypeOfExpression(node)
+            if (!(type.flags & TypeFlags.StringLike) && resultType.flags & TypeFlags.StringLike) {
+                write("Tsn__.ToString(");
+                emitExpression(node)
+                write(")");
+            } else {
+                emitExpression(node);
+            }
         }
 
         function emitCallExpression(node: CallExpression) {
@@ -1884,12 +1960,19 @@ namespace ts {
             emitExpressionList(node, node.arguments, ListFormat.CallExpressionArguments);
         }
 
-        /*function emitNewExpression(node: NewExpression) {
-            write("new ");
+        function emitNewExpression(node: NewExpression) {
+            if (isEntityNameExpression(node.expression)) {
+                let symbol = resolver.resolveEntityName(node.expression, SymbolFlags.Class)
+                if (symbol) {
+                    emitExpression(node.expression);
+                    write("new");
+                    emitExpressionList(node, node.arguments, ListFormat.NewExpressionArguments);
+                    return
+                }
+            }
             emitExpression(node.expression);
-            emitTypeArguments(node, node.typeArguments);
             emitExpressionList(node, node.arguments, ListFormat.NewExpressionArguments);
-        }*/
+        }
 
         // SyntaxKind.StringLiteral
         // SyntaxKind.RegularExpressionLiteral
@@ -1906,16 +1989,27 @@ namespace ts {
         // Identifiers
         //
 
-        function emitIdentifier(node: Identifier) {
-            let text = getTextOfNode(node, /*includeTrivia*/ false)
-            if (!node.isSpecialName) {
-                write(mangleName(text));
+        function emitTextOfNode(text: string, node: Node) {
+            if (isIdentifier(node)) {
+                emitIdentifier(node)
             } else {
-                write(text);
+                writeTextOfNode(text, node)
             }
         }
 
-        function mangleName(name: string) {
+        function getEmittedIdentifierName(node: Identifier) {
+            let name = getTextOfNode(node, /*includeTrivia*/ false)
+            return isSpecialName(name) ? name : transformName(name)
+            function isSpecialName(name: string) {
+                return name == "main" || name == "this"
+            }
+        }
+
+        function emitIdentifier(node: Identifier) {
+            write(getEmittedIdentifierName(node))
+        }
+
+        function transformName(name: string) {
             if (name[0] == name[0].toUpperCase()) {
                 return name + "_"
             }

@@ -681,10 +681,6 @@ namespace ts {
             return nodeLinks[nodeId] || (nodeLinks[nodeId] = { flags: 0 });
         }
 
-        function getObjectFlags(type: Type): ObjectFlags {
-            return type.flags & TypeFlags.Object ? (<ObjectType>type).objectFlags : 0;
-        }
-
         function isGlobalSourceFile(node: Node) {
             return node.kind === SyntaxKind.SourceFile && !isExternalOrCommonJsModule(<SourceFile>node);
         }
@@ -17394,6 +17390,7 @@ namespace ts {
             // Otherwise simply call checkExpression. Ideally, the entire family of checkXXX functions
             // should have a parameter that indicates whether full error checking is required such that
             // we can perform the optimizations locally.
+            //let type = checkExpressionCached(node)
             return cache ? checkExpressionCached(node) : checkExpression(node);
         }
 
@@ -22927,13 +22924,20 @@ namespace ts {
             getSymbolDisplayBuilder().buildTypeDisplay(type, writer, enclosingDeclaration, flags);
         }
 
+        function getTypeOfDeclaration(declaration: AccessorDeclaration | VariableLikeDeclaration) {
+            const symbol = getSymbolOfNode(declaration);
+            return symbol && !(symbol.flags & (SymbolFlags.TypeLiteral | SymbolFlags.Signature))
+                ? getWidenedLiteralType(getTypeOfSymbol(symbol))
+                : unknownType;
+        }
+
         function writeReturnTypeOfSignatureDeclaration(signatureDeclaration: SignatureDeclaration, enclosingDeclaration: Node, flags: TypeFormatFlags, writer: SymbolWriter) {
             const signature = getSignatureFromDeclaration(signatureDeclaration);
             getSymbolDisplayBuilder().buildTypeDisplay(getReturnTypeOfSignature(signature), writer, enclosingDeclaration, flags);
         }
 
         function writeTypeOfExpression(expr: Expression, enclosingDeclaration: Node, flags: TypeFormatFlags, writer: SymbolWriter) {
-            const type = getWidenedType(getRegularTypeOfExpression(expr));
+            const type = getWidenedType(getRegularTypeOfExpression(expr)) ;
             getSymbolDisplayBuilder().buildTypeDisplay(type, writer, enclosingDeclaration, flags);
         }
 
@@ -23028,8 +23032,10 @@ namespace ts {
                 isImplementationOfOverload,
                 isRequiredInitializedParameter,
                 writeTypeOfDeclaration,
+                getTypeOfDeclaration,
                 writeReturnTypeOfSignatureDeclaration,
                 writeTypeOfExpression,
+                getRegularTypeOfExpression,
                 isSymbolAccessible,
                 isEntityNameVisible,
                 getConstantValue: node => {
@@ -23047,7 +23053,8 @@ namespace ts {
                 getTypeReferenceDirectivesForSymbol,
                 isLiteralConstDeclaration,
                 writeLiteralConstValue,
-                getJsxFactoryEntity: () => _jsxFactoryEntity
+                getJsxFactoryEntity: () => _jsxFactoryEntity,
+                resolveEntityName,
             };
 
             // defined here to avoid outer scope pollution
